@@ -1,0 +1,122 @@
+sudo: required
+
+cache:
+  directories:
+    - $HOME/.pip
+    - $HOME/.m2
+    # - ${TRAVIS_BUILD_DIR}/python-venv
+    #- ${TRAVIS_BUILD_DIR}/tests/.tox
+
+env:
+  global:
+    - COMMIT=${TRAVIS_COMMIT::8}
+    - NO_GCE_CHECK=true
+    - DEPLOY_SCRIPT_FOLDER=~/build/EA/mdmx-deploy-scripts
+    - CUSTOM_ARGS="-ssl -c new-relic,tls"
+
+language: python
+dist: xenial
+
+notifications:
+  email: false
+
+if: tag IS blank
+
+python: "3.7"
+
+#  sonarcloud:
+#    branches:
+#      - master
+
+before_install:
+  - chmod -R g=u .
+
+after_failure:
+  - 'echo failed'
+
+# this skips the install step which would otherwise run a Maven build by default
+install: /bin/true
+
+stages:
+  - name: "build"
+  - name: "deploy"
+  - name: "release"
+
+# run the build
+# Using comment environment variables is a hack way to display labels on old travis instances
+jobs:
+  include:
+    # The unit stage job. This job simply requires an installed python installation
+    - stage: "build"
+      env: "comment=unit-tests"
+      before_script:
+        - "travis_terminate 0"
+      script:
+        - 'echo stage 1'
+      addons:
+        apt:
+          packages:
+            - "jq"
+
+      # The pack test job. This will also require credentials from the vault, as well as jq
+    - stage: "build"
+      env: "comment=pact-test-provider"
+      script:
+        - "echo stage 2"
+      after_script:
+        - "stop_local_server"
+      addons:
+        apt:
+          packages:
+            - "jq"
+
+      # Builds the local docker images and publishes them.
+      # This step does not require correct unit tests, as the integration tests would fail.
+    - stage: "build"
+      env: "comment=build-docker-service-image"
+      script:
+        - "echo stage 3"
+      language: minimal
+
+      # This step compiles and uploads the helm chart tar.
+    - stage: "build"
+      env: "comment=build-helm-chart"
+      script:
+        - 'echo stage 4'
+      language: minimal
+
+      # This step prepares and tags a new release of the service by calling the release script found in EA/mdmx-ci-scripts
+    - stage: "build"
+      env: "comment=release"
+      script:
+        - 'echo stage 5'
+      language: minimal
+      addons:
+        apt:
+          packages:
+            - "jq"
+
+      # The fvt stage is run after local checks have passed to ensure the service running in fvt
+      # The cluster deploy job deploys the service to a kube cluster and runs the respective tests against it
+    - stage: "deploy"
+      env: "commit=cluster-deploy"
+      script:
+        - "echo stage 6"
+
+    # This step schedules the integration tests against jenkins running on master commits
+    - stage: "deploy"
+      env: "comment=queue-integration"
+      script:
+        - 'echo stage 7'
+      language: minimal
+
+    - stage: "release"
+      env: "comment=semantic-release"
+      before_script:
+        - 'echo "entering release"'
+      script:
+        - 'npx semantic-release'
+      addons:
+        apt:
+          packages:
+            - "npm"
