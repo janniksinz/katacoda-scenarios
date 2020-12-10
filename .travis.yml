@@ -115,6 +115,7 @@ jobs:
       before_script:
         - 'echo "entering release"'
       script:
+        - 'npm install --save-dev semantic-release'
         - 'npx semantic-release'
       addons:
         apt:
